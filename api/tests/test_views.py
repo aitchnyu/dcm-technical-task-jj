@@ -1,11 +1,89 @@
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 
 from api.models import TestRunRequest, TestEnvironment, TestFilePath
 
+
+class TestTestFileUploadAPIView(TestCase):
+
+    def setUp(self) -> None:
+        self.env = TestEnvironment.objects.create(name='my_env')
+        self.url = reverse('test_file')
+
+    def test_post_empty(self):
+        response = self.client.post(self.url, data={})
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        response_data = response.json()
+        self.assertEqual(
+            {
+                'upload_dir': ['This field is required.'],
+                'test_file': ['No file was submitted.'],
+            },
+            response_data
+        )
+
+    def test_with_wrong_file_extension(self):
+        response = self.client.post(self.url, data={
+            'upload_dir': 'foo',
+            'test_file' : SimpleUploadedFile("test_something.java", b"pass", content_type="text/x-python")
+        })
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        response_data = response.json()
+        self.assertEqual(
+            {
+                'test_file': ['File extension is not .py'],
+            },
+            response_data
+        )
+    
+    def test_with_wrong_content_type(self):
+        response = self.client.post(self.url, data={
+            'upload_dir': 'foo',
+            'test_file' : SimpleUploadedFile("test_something.py", b"pass", content_type="text/plain")
+        })
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        response_data = response.json()
+        self.assertEqual(
+            {
+                'test_file': ['File content-type is not text/x-python'],
+            },
+            response_data
+        )
+    
+    @patch('api.serializers.TestFilePathCreateSerializer.write_test_file')
+    def test_post_data_will_save_to_file(self, write_test_file_mock):
+        response = self.client.post(self.url, data={
+            'upload_dir': 'foo',
+            'test_file' : SimpleUploadedFile("test_something.py", b"pass", content_type="text/x-python")
+        })
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+        response_data = response.json()
+        self.assertEqual({}, response_data)
+        write_test_file_mock.assert_called_with('/code/user_tests/foo', '/code/user_tests/foo/test_something.py', b'pass')
+        self.assertEqual(TestFilePath.objects.filter(path='user_tests/foo/test_something.py').count(), 1)
+
+    @patch('api.serializers.TestFilePathCreateSerializer.write_test_file')
+    def test_posting_to_same_filename_will_update_file(self, write_test_file_mock):
+        response = self.client.post(self.url, data={
+            'upload_dir': 'foo',
+            'test_file' : SimpleUploadedFile("test_something.py", b"pass", content_type="text/x-python")
+        })
+        self.assertEqual({}, response.json())
+        write_test_file_mock.assert_called_with('/code/user_tests/foo', '/code/user_tests/foo/test_something.py', b'pass')
+        self.assertEqual(TestFilePath.objects.filter(path='user_tests/foo/test_something.py').count(), 1)
+
+        # Different contents, same filename
+        response = self.client.post(self.url, data={
+            'upload_dir': 'foo',
+            'test_file' : SimpleUploadedFile("test_something.py", b"pass # blank file", content_type="text/x-python")
+        })
+        self.assertEqual({}, response.json())
+        write_test_file_mock.assert_called_with('/code/user_tests/foo', '/code/user_tests/foo/test_something.py', b"pass # blank file")
+        self.assertEqual(TestFilePath.objects.filter(path='user_tests/foo/test_something.py').count(), 1)
 
 class TestTestRunRequestAPIView(TestCase):
 

@@ -1,13 +1,16 @@
 from rest_framework import status
-from rest_framework.generics import ListCreateAPIView, RetrieveAPIView
+from rest_framework.generics import CreateAPIView, ListCreateAPIView, RetrieveAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.models import TestRunRequest
-from api.serializers import TestRunRequestSerializer, TestRunRequestItemSerializer
+from api.serializers import TestFilePathCreateSerializer, TestRunRequestSerializer, TestRunRequestItemSerializer
 from api.tasks import execute_test_run_request
 from api.usecases import get_assets
 
+
+class TestFileUploadAPIView(CreateAPIView):
+    serializer_class = TestFilePathCreateSerializer
 
 class TestRunRequestAPIView(ListCreateAPIView):
     serializer_class = TestRunRequestSerializer
